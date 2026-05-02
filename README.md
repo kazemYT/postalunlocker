@@ -48,6 +48,7 @@ game crashes -restore original POSTAL.INI backup
 # notes
 
 this tool edits local config files only
+
 no game files are modified
 
 use at your own risk
