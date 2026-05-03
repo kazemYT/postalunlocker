@@ -32,7 +32,7 @@ on first launch it will try to find POSTAL.INI automatically
 if not found, ask you to enter path manually
 save path for next runs
 
-inside program:
+inside script:
 
 all - unlock all levels
 lockall - lock all levels
