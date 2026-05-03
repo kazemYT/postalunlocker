@@ -141,7 +141,6 @@ def ini_set(p, s, k, v):
         return False
 
 def get_status(p):
-    """Возвращает статус kidmode и debug"""
     kid = ini_get(p, "game", "kidmode")
     debug = ini_get(p, "debug", "displayinfo")
     return kid, debug
