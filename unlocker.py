@@ -3,7 +3,9 @@ from rich.console import Console
 from rich.prompt import Prompt
 from rich.table import Table
 from rich.panel import Panel
+
 c = Console()
+
 levels = {
     1: ("home", 1<<0), 2: ("truckstop", 1<<1), 3: ("outskirts", 1<<2),
     4: ("parade of disaster", 1<<3), 5: ("bridge", 1<<4), 6: ("mine", 1<<5),
@@ -18,12 +20,19 @@ all_on = (1<<22) - 1
 app = "postalunlocker"
 cfg = lambda: os.path.join(os.getenv("APPDATA"), app, "config.json")
 ini_default = lambda: os.path.join(os.getenv("APPDATA"), "RunningWithScissors", "Postal Plus", "POSTAL.INI")
+
 def cfg_load():
-    try: return json.load(open(cfg())).get("ini", "")
-    except: return ""
+    try:
+        with open(cfg(), "r") as f:
+            return json.load(f).get("ini", "")
+    except:
+        return ""
+
 def cfg_save(p):
     os.makedirs(os.path.dirname(cfg()), exist_ok=True)
-    json.dump({"ini": p}, open(cfg(), "w"))
+    with open(cfg(), "w") as f:
+        json.dump({"ini": p}, f)
+
 def find_ini():
     s = cfg_load()
     if s and os.path.exists(s):
@@ -32,55 +41,111 @@ def find_ini():
     if os.path.exists(d):
         return d
     return Prompt.ask("ini path not found, enter manually")
+
 def mask_get(p):
     try:
-        for l in open(p, "r", encoding="latin-1"):
-            if l.startswith("UnlockedLevels="):
-                return int(l.split("=")[1])
+        with open(p, "r", encoding="latin-1") as f:
+            in_game_section = False
+            for line in f:
+                line_stripped = line.strip()
+                if line_stripped.lower() == "[game]":
+                    in_game_section = True
+                elif in_game_section and line_stripped.startswith("["):
+                    break
+                elif in_game_section and line_stripped.startswith("UnlockedLevels="):
+                    return int(line_stripped.split("=")[1])
         return 0
     except:
         return 0
+
 def mask_set(p, m):
     try:
-        lns = open(p, "r", encoding="latin-1").readlines()
-        for i, l in enumerate(lns):
-            if l.startswith("UnlockedLevels="):
-                lns[i] = f"UnlockedLevels={m}\n"
+        with open(p, "r", encoding="latin-1") as f:
+            lines = f.readlines()
+        
+        in_game_section = False
+        game_section_start = -1
+        unlocked_line_idx = -1
+        
+        for i, line in enumerate(lines):
+            line_stripped = line.strip()
+            if line_stripped.lower() == "[game]":
+                in_game_section = True
+                game_section_start = i
+            elif in_game_section and line_stripped.startswith("["):
                 break
+            elif in_game_section and line_stripped.startswith("UnlockedLevels="):
+                unlocked_line_idx = i
+                break
+        
+        if unlocked_line_idx != -1:
+            lines[unlocked_line_idx] = f"UnlockedLevels={m}\n"
+        elif game_section_start != -1:
+            lines.insert(game_section_start + 1, f"UnlockedLevels={m}\n")
         else:
-            lns.append(f"[game]\nunlockedlevels={m}\n")
-        open(p, "w", encoding="latin-1").writelines(lns)
-        return 1
+            return False
+        
+        with open(p, "w", encoding="latin-1") as f:
+            f.writelines(lines)
+        return True
     except:
-        return 0
+        return False
+
 def ini_get(p, s, k):
-    sec = 0
-    for l in open(p, "r", encoding="latin-1"):
-        l = l.strip().lower()
-        if l == f"[{s.lower()}]": sec = 1
-        elif sec and l.startswith("["): break
-        elif sec and l.startswith(k.lower()+"="):
-            return l.split("=")[1]
-    return "0"
+    try:
+        with open(p, "r", encoding="latin-1") as f:
+            in_section = False
+            for line in f:
+                line_stripped = line.strip()
+                if line_stripped.lower() == f"[{s.lower()}]":
+                    in_section = True
+                elif in_section and line_stripped.startswith("["):
+                    break
+                elif in_section and line_stripped.lower().startswith(k.lower() + "="):
+                    return line_stripped.split("=", 1)[1]
+        return "0"
+    except:
+        return "0"
 
 def ini_set(p, s, k, v):
     try:
-        lns = open(p, "r", encoding="latin-1").readlines()
-        key = k.lower() + "="
-        sec = 0
-        for i, l in enumerate(lns):
-            if l.strip().lower() == f"[{s.lower()}]":
-                sec = 1
-            elif sec and l.startswith("["): break
-            elif sec and l.lower().startswith(key):
-                lns[i] = f"{k}={v}\n"
+        with open(p, "r", encoding="latin-1") as f:
+            lines = f.readlines()
+        
+        in_section = False
+        section_start = -1
+        key_idx = -1
+        
+        for i, line in enumerate(lines):
+            line_stripped = line.strip()
+            if line_stripped.lower() == f"[{s.lower()}]":
+                in_section = True
+                section_start = i
+            elif in_section and line_stripped.startswith("["):
                 break
+            elif in_section and line_stripped.lower().startswith(k.lower() + "="):
+                key_idx = i
+                break
+        
+        if key_idx != -1:
+            lines[key_idx] = f"{k}={v}\n"
+        elif section_start != -1:
+            lines.insert(section_start + 1, f"{k}={v}\n")
         else:
-            lns.append(f"[{s}]\n{k}={v}\n")
-        open(p, "w", encoding="latin-1").writelines(lns)
-        return 1
+            return False
+        
+        with open(p, "w", encoding="latin-1") as f:
+            f.writelines(lines)
+        return True
     except:
-        return 0
+        return False
+
+def get_status(p):
+    """Возвращает статус kidmode и debug"""
+    kid = ini_get(p, "game", "kidmode")
+    debug = ini_get(p, "debug", "displayinfo")
+    return kid, debug
+
 def help_box():
     c.print(Panel(
         "\n".join([
@@ -100,15 +165,24 @@ def help_box():
         title="help",
         border_style="cyan"
     ))
+
 def show(p):
     m = mask_get(p)
+    kid, debug = get_status(p)
+
     t = Table(title="levels")
-    t.add_column("#"); t.add_column("name"); t.add_column("state")
+    t.add_column("#")
+    t.add_column("name")
+    t.add_column("state")
     for i in sorted(levels):
         n, b = levels[i]
         t.add_row(str(i), n, "on" if m & b else "off")
     c.print(t)
-    c.print(f"mask: {m}")
+    
+    # кид мод xd вроде на 1 апреля был создан
+    status_text = f"mask: {m}  |  kidmode: {'ON' if kid == '1' else 'OFF'}  |  debug: {'ON' if debug == '1' else 'OFF'}"
+    c.print(Panel(status_text, title="status", border_style="green"))
+
 def main():
     c.rule("postal unlocker")
     f = find_ini()
@@ -116,32 +190,36 @@ def main():
     if not os.path.exists(f):
         c.print("file not found")
         return
-    while 1:
+    
+    while True:
         c.rule("menu")
-        c.print(Panel("\n".join([f"{i}. {levels[i][0]}" for i in levels]), title="levels"))
+        levels_list = ", ".join([f"{i}.{levels[i][0]}" for i in list(levels)[:12]]) + "..."
+        c.print(Panel(levels_list, title="levels available"))
         show(f)
         help_box()
         cmd = Prompt.ask("cmd").lower()
         if cmd == "q":
             break
-        if cmd == "all":
-            if Prompt.ask("unlock all?", choices=["yes","no"]) == "yes":
+        elif cmd == "all":
+            if Prompt.ask("unlock all?", choices=["yes", "no"]) == "yes":
                 mask_set(f, all_on)
         elif cmd == "lockall":
             mask_set(f, 0)
         elif cmd == "kidmode":
             v = ini_get(f, "game", "kidmode")
             ini_set(f, "game", "kidmode", "0" if v == "1" else "1")
+            c.print(f"[green]kidmode toggled to {'ON' if ini_get(f, 'game', 'kidmode') == '1' else 'OFF'}[/green]")
         elif cmd == "debug":
             v = ini_get(f, "debug", "displayinfo")
             ini_set(f, "debug", "displayinfo", "0" if v == "1" else "1")
+            c.print(f"[green]debug toggled to {'ON' if ini_get(f, 'debug', 'displayinfo') == '1' else 'OFF'}[/green]")
         elif cmd.isdigit():
             i = int(cmd)
             if i in levels:
                 m = mask_get(f)
                 n, b = levels[i]
                 on = bool(m & b)
-                if Prompt.ask(f"{n} toggle?", choices=["1","2"]) == "1":
+                if Prompt.ask(f"{n} toggle?", choices=["1", "2"]) == "1":
                     mask_set(f, m | b if not on else m & ~b)
 
 if __name__ == "__main__":
